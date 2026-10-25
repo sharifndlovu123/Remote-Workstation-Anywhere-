@@ -1,0 +1,22 @@
+flowchart TB
+    subgraph REMOTE["Anywhere (coffee shop, hotel, another office)"]
+        L["Lightweight laptop<br/>Tailscale + RDP client + connect script"]
+    end
+
+    subgraph TS["Tailscale (WireGuard, end-to-end encrypted)"]
+        T(("Tailnet"))
+    end
+
+    subgraph HOME["Home or office LAN (e.g. 192.168.1.0/24)"]
+        R["Router<br/>DHCP reservation, no port forwarding"]
+        G["Always-on gateway (Raspberry Pi or any Linux box)<br/>Tailscale subnet router, IP forwarding,<br/>SSH, Wake-on-LAN sender"]
+        W["Powerful workstation (sleeps or powers off)<br/>GNOME Remote Desktop, RDP 3389,<br/>Wake-on-LAN enabled"]
+    end
+
+    L -- "encrypted tunnel" --> T
+    T -- "route to 192.168.1.0/24" --> G
+    G -- "magic packet (UDP broadcast)" --> W
+    G -- "forwarded RDP / SSH" --> W
+    R --- G
+    R --- W
+    W --> D["Development environment"]

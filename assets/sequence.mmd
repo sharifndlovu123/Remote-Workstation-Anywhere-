@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    actor You
+    participant C as Client (connect script)
+    participant G as Gateway (always on)
+    participant W as Workstation
+
+    You->>C: run remote-workstation
+    C->>W: TCP probe to RDP port (via Tailscale subnet route)
+    alt RDP port reachable
+        W-->>C: connection accepted
+    else not reachable (off, asleep, booting, or service down)
+        C->>W: optional ping, informational only
+        C->>G: SSH: wakeonlan -i BROADCAST MAC
+        G->>W: Wake-on-LAN magic packet (LAN broadcast)
+        loop until BOOT_TIMEOUT
+            C->>W: TCP probe to RDP port
+        end
+        W-->>C: RDP port now accepting connections
+    end
+    C->>C: read password from OS credential store
+    C->>W: FreeRDP, password supplied on stdin
+    W-->>You: remote desktop session

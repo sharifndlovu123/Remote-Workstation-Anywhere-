@@ -1,0 +1,23 @@
+# Local configuration (may contain addresses and usernames)
+config.env
+*.env
+!examples/config.example.env
+
+# Secrets and key material - never commit these
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.p12
+*.keychain
+*.keychain-db
+*.rdp
+*.crt
+
+# Editor and OS noise
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
