@@ -7,14 +7,14 @@
 
 ## 1. Objective
 
-Access the Ubuntu development desktop from a MacBook without leaving the desktop running continuously. The Raspberry Pi remains powered on and acts as a Tailscale subnet router and Wake-on-LAN sender. A single `workstation` command on macOS checks the RDP service, wakes the desktop if needed, waits for it to boot, retrieves the RDP password from macOS Keychain, and opens a fullscreen remote session.
+Access the Ubuntu development desktop from a MacBook without leaving the desktop running continuously. The Raspberry Pi remains powered on and acts as a Tailscale subnet router and Wake-on-LAN sender. A single `home-desktop` command on macOS checks the RDP service, wakes the desktop if needed, waits for it to boot, retrieves the RDP password from macOS Keychain, and opens a fullscreen remote session.
 
 ### Working architecture
 
 ```text
 MacBook (macOS)
-  |  Tailscale client; SSH alias gateway; FreeRDP; macOS Keychain
-  |  Run: workstation
+  |  Tailscale client; SSH alias home-pi; FreeRDP; macOS Keychain
+  |  Run: home-desktop
   v
 Tailscale encrypted tunnel
   |
@@ -29,7 +29,7 @@ Home LAN (<HOME_SUBNET>; router <ROUTER_IP>)
   |
   v
 Ubuntu development desktop
-  |  Ethernet: <ETH_IFACE>
+  |  Ethernet: enp5s0
   |  Reserved LAN IP: <WORKSTATION_IP>
   |  Ethernet MAC: <WORKSTATION_MAC>
   |  GNOME / Wayland / GDM
@@ -48,8 +48,8 @@ The Raspberry Pi is **not** an RD Gateway. In FreeRDP or Windows App, connect di
 | Home router / gateway | `<ROUTER_IP>` |
 | Raspberry Pi Ethernet | `eth0`, `<GATEWAY_IP>` |
 | Raspberry Pi Wi-Fi | `wlan0`, `<GATEWAY_WIFI_IP>` (Ethernet preferred) |
-| Raspberry Pi SSH | `ssh gateway` from MacBook |
-| Ubuntu desktop Ethernet | `<ETH_IFACE>` |
+| Raspberry Pi SSH | `ssh home-pi` from MacBook |
+| Ubuntu desktop Ethernet | `enp5s0` |
 | Ubuntu desktop IP | `<WORKSTATION_IP>` |
 | Ubuntu desktop MAC | `<WORKSTATION_MAC>` |
 | Ubuntu NetworkManager profile | `Wired connection 1` |
@@ -58,7 +58,7 @@ The Raspberry Pi is **not** an RD Gateway. In FreeRDP or Windows App, connect di
 | Ubuntu RDP port | TCP `3389` |
 | Ubuntu username | `<USERNAME>` |
 | macOS Keychain service name | `<KEYCHAIN_SERVICE>` |
-| macOS launcher | `~/bin/workstation` |
+| macOS launcher | `~/bin/home-desktop` |
 | RDP client | `sdl-freerdp` |
 
 **IP address stability:** The router has DHCP reservations for the devices, including the desktop at `<WORKSTATION_IP>`. Do not independently assign a conflicting static address inside Ubuntu. If replacing the router or network, update reservations, the advertised subnet, and the script accordingly.
@@ -76,7 +76,7 @@ tailscale status
 ip -4 addr show eth0
 ```
 
-On the MacBook, ensure Tailscale is connected to the same tailnet. The Pi should be reachable through the configured `gateway` SSH alias.
+On the MacBook, ensure Tailscale is connected to the same tailnet. The Pi should be reachable through the configured `home-pi` SSH alias.
 
 ### 3.2 Persistent IP forwarding
 
@@ -100,7 +100,7 @@ Approve the advertised subnet route in the Tailscale admin console. The MacBook 
 The MacBook's `~/.ssh/config` includes an alias equivalent to:
 
 ```sshconfig
-Host gateway
+Host home-pi
     HostName <GATEWAY_IP>
     User <USERNAME>
     IdentityFile ~/.ssh/<SSH_KEY_FILE>
@@ -112,7 +112,7 @@ The `IdentityFile` must match the actual MacBook private key path. An alternativ
 Test:
 
 ```bash
-ssh gateway 'hostname && ip -4 addr show eth0'
+ssh home-pi 'hostname && ip -4 addr show eth0'
 ```
 
 The Pi's `~/.ssh/authorized_keys` must contain the MacBook's corresponding public key. A separate Ubuntu-to-Pi SSH key was also authorized during setup; keys from different machines must be enrolled independently.
@@ -121,12 +121,12 @@ The Pi's `~/.ssh/authorized_keys` must contain the MacBook's corresponding publi
 
 ### 4.1 Hardware and interface
 
-The development desktop uses a desktop motherboard, with wired Ethernet interface `<ETH_IFACE>` and MAC `<WORKSTATION_MAC>`. Wake-on-LAN requires Ethernet and standby power to the network interface.
+The development desktop uses a Gigabyte B650 EAGLE AX motherboard, with wired Ethernet interface `enp5s0` and MAC `<WORKSTATION_MAC>`. Wake-on-LAN requires Ethernet and standby power to the network interface.
 
 Check capability:
 
 ```bash
-sudo ethtool <ETH_IFACE> | grep -i wake
+sudo ethtool enp5s0 | grep -i wake
 ```
 
 The initial state supported magic packets but was disabled:
@@ -139,7 +139,7 @@ Wake-on: d
 ### 4.2 Enable magic-packet wake
 
 ```bash
-sudo ethtool -s <ETH_IFACE> wol g
+sudo ethtool -s enp5s0 wol g
 ```
 
 Persist the setting through NetworkManager:
@@ -153,7 +153,7 @@ Verify:
 
 ```bash
 nmcli -g 802-3-ethernet.wake-on-lan connection show 'Wired connection 1'
-sudo ethtool <ETH_IFACE> | grep -i wake
+sudo ethtool enp5s0 | grep -i wake
 ```
 
 `magic` in NetworkManager and `Wake-on: g` in `ethtool` are the expected settings.
@@ -163,7 +163,7 @@ sudo ethtool <ETH_IFACE> | grep -i wake
 The Pi has `wakeonlan` installed. From the MacBook:
 
 ```bash
-ssh gateway 'wakeonlan -i <WOL_BROADCAST> <WORKSTATION_MAC>'
+ssh home-pi 'wakeonlan -i <WOL_BROADCAST> <WORKSTATION_MAC>'
 ```
 
 The directed broadcast `<WOL_BROADCAST>` is on the Pi's local LAN. Sending the packet *from the Pi* avoids depending on broadcast forwarding through Tailscale.
@@ -328,7 +328,7 @@ The launcher reads it using `security find-generic-password ... -w`. Do not hard
 
 ## 7. Final one-command MacBook launcher
 
-**File:** `~/bin/workstation` on the MacBook.
+**File:** `~/bin/home-desktop` on the MacBook.
 
 The script below checks TCP 3389, sends a magic packet through the Pi if RDP is unavailable, waits up to 120 seconds, retrieves the Keychain password, and starts FreeRDP. It retains the working fullscreen, dynamic resolution and **180% scaling** options.
 
@@ -342,7 +342,7 @@ PORT="3389"
 USERNAME="<USERNAME>"
 
 # Raspberry Pi and Wake-on-LAN
-PI_HOST="gateway"
+PI_HOST="home-pi"
 DESKTOP_MAC="<WORKSTATION_MAC>"
 BROADCAST="<WOL_BROADCAST>"
 TIMEOUT=120
@@ -400,12 +400,12 @@ unset PASSWORD
 
 ```bash
 mkdir -p ~/bin
-nano ~/bin/workstation
-chmod 700 ~/bin/workstation
-bash -n ~/bin/workstation
+nano ~/bin/home-desktop
+chmod 700 ~/bin/home-desktop
+bash -n ~/bin/home-desktop
 ```
 
-The executable permission was important: an initial `Permission denied` error was fixed with `chmod u+x ~/bin/workstation`.
+The executable permission was important: an initial `Permission denied` error was fixed with `chmod u+x ~/bin/home-desktop`.
 
 ### 7.2 Add `~/bin` to Zsh PATH
 
@@ -419,15 +419,15 @@ Then:
 
 ```bash
 source ~/.zshrc
-command -v workstation
+command -v home-desktop
 ```
 
-Expected result is a path ending in `/bin/workstation`.
+Expected result is a path ending in `/bin/home-desktop`.
 
 **Normal use:**
 
 ```bash
-workstation
+home-desktop
 ```
 
 ### 7.3 Display configuration
@@ -451,7 +451,7 @@ The following components were individually verified:
 5. Pi wakes Ubuntu from **full shutdown**.
 6. GNOME Remote Login accepts configured system RDP credentials after service restart.
 7. FreeRDP connects and supports actual development work.
-8. `workstation` executes from PATH, retrieves the `<KEYCHAIN_SERVICE>` Keychain credential and uses fullscreen with `/scale:180`.
+8. `home-desktop` executes from PATH, retrieves the `<KEYCHAIN_SERVICE>` Keychain credential and uses fullscreen with `/scale:180`.
 9. The combined script was reported working well.
 
 To re-run the full power-off test:
@@ -464,7 +464,7 @@ sudo systemctl poweroff
 Wait until it shuts down. On the MacBook, with Tailscale connected:
 
 ```bash
-workstation
+home-desktop
 ```
 
 Expected: check RDP → send WoL if unavailable → wait for port 3389 → open FreeRDP.
@@ -473,16 +473,16 @@ Expected: check RDP → send WoL if unavailable → wait for port 3389 → open 
 
 | Symptom | Likely area | Check or recovery |
 |---|---|---|
-| `ssh gateway` fails | Tailscale, SSH alias, keys | `tailscale status`; `ssh -v gateway`; inspect `~/.ssh/config` and Pi's `authorized_keys` |
+| `ssh home-pi` fails | Tailscale, SSH alias, keys | `tailscale status`; `ssh -v home-pi`; inspect `~/.ssh/config` and Pi's `authorized_keys` |
 | Pi reachable but desktop not reachable | Power, subnet route, LAN IP | Check WoL, router reservation, `ping <WORKSTATION_IP>` |
-| Desktop won't wake | Ethernet WoL, firmware, standby power | `sudo ethtool <ETH_IFACE>`; `nmcli` WoL profile; PSU and Ethernet cable |
+| Desktop won't wake | Ethernet WoL, firmware, standby power | `sudo ethtool enp5s0`; `nmcli` WoL profile; PSU and Ethernet cable |
 | TCP 3389 refused | GNOME RDP service | `sudo systemctl status gnome-remote-desktop.service`; `sudo ss -lntp '( sport = :3389 )'` |
 | TCP 3389 times out | Routing/firewall | Tailscale route, Pi forwarding, Ubuntu firewall, correct address |
 | `[RDP] Credentials are not set` | System-level RDP credentials | `sudo grdctl --system rdp set-credentials`, then restart service |
 | RDP stalls during securing/authentication | Client/NLA/session | Inspect journal; retry known-working FreeRDP instead of Windows App |
 | GNOME service logs TPM fallback | TPM unavailable for credential storage | Not necessarily fatal; service worked with GKeyFile fallback |
-| `workstation: command not found` | Zsh PATH | Add `~/bin` to `~/.zshrc`, reload shell |
-| `Permission denied` running script | Executable bit or ownership | `ls -l ~/bin/workstation`; `chmod 700 ~/bin/workstation` |
+| `home-desktop: command not found` | Zsh PATH | Add `~/bin` to `~/.zshrc`, reload shell |
+| `Permission denied` running script | Executable bit or ownership | `ls -l ~/bin/home-desktop`; `chmod 700 ~/bin/home-desktop` |
 | Keychain lookup fails | Wrong service/account or access control | Check service `<KEYCHAIN_SERVICE>`, account `<USERNAME>`, macOS Keychain permission prompt |
 | Remote desktop looks tiny | HiDPI scaling | Keep `/f`, `/dynamic-resolution`, `/scale:180` |
 | Wake succeeds but RDP never opens | RDP service not ready or broken | Check Ubuntu's `gnome-remote-desktop.service` and `journalctl` |
@@ -495,17 +495,17 @@ sudo systemctl status gnome-remote-desktop.service --no-pager
 sudo journalctl -u gnome-remote-desktop.service --since '5 minutes ago' --no-pager -l
 sudo ss -lntp '( sport = :3389 )'
 systemctl status gdm3.service --no-pager
-sudo ethtool <ETH_IFACE> | grep -i wake
+sudo ethtool enp5s0 | grep -i wake
 ```
 
 Useful checks on MacBook:
 
 ```bash
 tailscale status
-ssh gateway 'hostname'
+ssh home-pi 'hostname'
 nc -vz -G 5 <WORKSTATION_IP> 3389
 command -v sdl-freerdp
-command -v workstation
+command -v home-desktop
 security find-generic-password -a <USERNAME> -s <KEYCHAIN_SERVICE>
 ```
 
@@ -529,13 +529,13 @@ security find-generic-password -a <USERNAME> -s <KEYCHAIN_SERVICE>
 **From MacBook — normal remote development:**
 
 ```bash
-workstation
+home-desktop
 ```
 
 **From MacBook — manually wake Ubuntu:**
 
 ```bash
-ssh gateway 'wakeonlan -i <WOL_BROADCAST> <WORKSTATION_MAC>'
+ssh home-pi 'wakeonlan -i <WOL_BROADCAST> <WORKSTATION_MAC>'
 ```
 
 **From MacBook — check RDP port:**
@@ -559,9 +559,9 @@ sudo grdctl --system status
 **From Ubuntu — verify Wake-on-LAN:**
 
 ```bash
-sudo ethtool <ETH_IFACE> | grep -i wake
+sudo ethtool enp5s0 | grep -i wake
 ```
 
 ---
 
-**Result:** The MacBook can remotely power on the Ubuntu desktop from a full shutdown and access a usable GNOME development session over Tailscale using a single `workstation` command.
+**Result:** The MacBook can remotely power on the Ubuntu desktop from a full shutdown and access a usable GNOME development session over Tailscale using a single `home-desktop` command.

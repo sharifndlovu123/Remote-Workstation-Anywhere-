@@ -128,6 +128,9 @@ remote-workstation            # the one command
 | FAQ | [docs/faq.md](docs/faq.md) |
 | Validation checklist | [docs/validation-checklist.md](docs/validation-checklist.md) |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) |
+| End-to-end tested setup walkthrough | [docs/remote-development-workstation-guide.md](docs/remote-development-workstation-guide.md) |
+| Gateway Pi: read-only root with RAM OverlayFS | [docs/raspberry-pi-read-only-overlayfs-guide.md](docs/raspberry-pi-read-only-overlayfs-guide.md) |
+| Gateway Pi: full-disk backup and recovery | [docs/raspberry-pi-backup-and-recovery-guide.md](docs/raspberry-pi-backup-and-recovery-guide.md) |
 
 ## Security considerations
 
